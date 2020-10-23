@@ -126,7 +126,7 @@ class DataStore():
         self._add_new_tag(name, tag, self.treefactory.tag_filter, parameters)
         return tag
 
-    def new_search_tag(self, name, query, attributes={}):
+    def new_search_tag(self, name, query, attributes={}, tid=None):
         """
         Create a new search tag
 
@@ -143,7 +143,7 @@ class DataStore():
         init_attr["label"] = name
         init_attr["query"] = query
 
-        tag = Tag(name, req=self.requester, attributes=init_attr)
+        tag = Tag(name, req=self.requester, attributes=init_attr, tid=tid)
         self._add_new_tag(name, tag, search_filter, parameters,
                           parent_id=SEARCH_TAG)
         self.save_tagtree()
@@ -211,7 +211,7 @@ class DataStore():
             num += 1
             label = newname + " " + str(num)
 
-        self.new_search_tag(label, query)
+        self.new_search_tag(label, query, {}, tag.tid)
 
     def get_tag(self, tagname):
         """
@@ -257,6 +257,28 @@ class DataStore():
             self.tag_idmap[tid] = tag
 
         self.tagfile_loaded = True
+
+
+    def load_search_tree(self, search_tree):
+        """Load saved searches tree."""
+
+        for element in search_tree.iter('savedSearch'):
+            tid = element.get('id')
+            name = element.get('name')
+            color = element.get('color')
+            icon = element.get('icon')
+            query = element.get('query')
+
+            tag_attrs = {}
+
+            if color:
+                tag_attrs['color'] = color
+
+            if icon:
+                tag_attrs['icon'] = icon
+
+            self.new_search_tag(name, query, tag_attrs, tid)
+
 
     def get_tag_by_id(self, tid):
         """Get a tag by its ID"""
@@ -887,6 +909,7 @@ class FilteredDataStore(Borg):
                     'get_all_tasks',
                     'get_tasks_tree',
                     'load_tag_tree',
+                    'load_search_tree',
                     'get_tag_by_id',
                     'get_backend_mutex',
                     'flush_all_tasks',
