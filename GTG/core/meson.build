@@ -32,7 +32,6 @@ gtg_core_sources = [
   'firstrun_tasks.py',
   'interruptible.py',
   'keyring.py',
-  'logger.py',
   'networkmanager.py',
   'requester.py',
   'search.py',
@@ -44,6 +43,7 @@ gtg_core_sources = [
   'twokeydict.py',
   'urlregex.py',
   'watchdog.py',
+  'versioning.py',
 ]
 
 gtg_core_plugin_sources = [

@@ -25,12 +25,13 @@ and to read projects from this medium
 import sys
 import uuid
 import os.path
+import logging
 
-from GTG.core.logger import log
 from GTG.core.borg import Borg
+from GTG.core.config import CoreConfig
 from GTG.backends.generic_backend import GenericBackend
-from GTG.core.dirs import PROJECTS_XMLFILE
-from GTG.core import xml
+
+log = logging.getLogger(__name__)
 
 
 class BackendFactory(Borg):
@@ -56,7 +57,7 @@ class BackendFactory(Borg):
         backend_files = self._find_backend_files()
         # Create module names
         module_names = [f.replace(".py", "") for f in backend_files]
-        log.debug("Backends found: " + str(module_names))
+        log.debug("Backends found: %r", module_names)
         # Load backend modules
         for module_name in module_names:
             extended_module_name = "GTG.backends." + module_name
@@ -64,12 +65,12 @@ class BackendFactory(Borg):
                 __import__(extended_module_name)
             except ImportError as exception:
                 # Something is wrong with this backend, skipping
-                log.warning("Backend %s could not be loaded: %s" %
-                            (module_name, str(exception)))
+                log.warning("Backend %s could not be loaded: %r",
+                            module_name, exception)
                 continue
-            except Exception as exception:
+            except Exception:
                 # Other exception log as errors
-                log.error(f"Malformated backend {module_name}: {str(exception)}")
+                log.exception("Malformated backend %s:", module_name)
                 continue
 
             self.backend_modules[module_name] = \
@@ -92,7 +93,7 @@ class BackendFactory(Borg):
         if backend_name in self.backend_modules:
             return self.backend_modules[backend_name]
         else:
-            log.debug(f"Trying to load backend {backend_name}, but failed!")
+            log.debug("Trying to load backend %s, but failed!", backend_name)
             return None
 
     def get_all_backends(self):
@@ -124,76 +125,49 @@ class BackendFactory(Borg):
         dic["backend"] = module.Backend(dic)
         return dic
 
-    def restore_backend_from_xml(self, dic):
-        """
-        Function restoring a backend from its xml description.
-        dic should be a dictionary containing at least the key
-            - "module", with the module name
-            - "xmlobject", with its xml description.
-        Every other key is passed as-is to the backend, as parameter.
-
-        Returns the backend instance, or None is something goes wrong
-        """
-        if "module" not in dic or "xmlobject" not in dic:
-            log.debug(f"Malformed backend configuration found! {dic}")
-        module = self.get_backend(dic["module"])
-        if module is None:
-            log.debug(f"could not load module for backend {dic['module']}")
-            return None
-        # we pop the xml object, as it will be redundant when the parameters
-        # are set directly in the dict
-        xp = dic.pop("xmlobject")
-        # Building the dictionary
-        parameters_specs = module.Backend.get_static_parameters()
-        dic["pid"] = str(xp.get("pid"))
-        for param_name, param_dic in parameters_specs.items():
-            if xp.get(param_name):
-                # we need to convert the parameter to the right format.
-                # we fetch the format from the static_parameters
-                param_type = param_dic[GenericBackend.PARAM_TYPE]
-                param_value = GenericBackend.cast_param_type_from_string(
-                    xp.get(param_name), param_type)
-                dic[param_name] = param_value
-        # We put the backend itself in the dict
-        dic["backend"] = module.Backend(dic)
-        return dic["backend"]
-
     def get_saved_backends_list(self):
-        backends_dic = self._read_backend_configuration_file()
+        config = CoreConfig()
+        backends = []
 
-        # Retrocompatibility: default backend has changed name
-        for dic in backends_dic:
-            if dic["module"] == "localfile":
-                dic["module"] = "backend_localfile"
-                dic["pid"] = str(uuid.uuid4())
-                dic["need_conversion"] = \
-                    dic["xmlobject"].get("filename")
+        for backend in config.get_all_backends():
+            settings = config.get_backend_config(backend)
+            module = self.get_backend(settings.get('module'))
 
-        # Now that the backend list is build, we will construct them
-        for dic in backends_dic:
-            self.restore_backend_from_xml(dic)
-        # If no backend available, we create a new using localfile. Xmlobject
+            # Skip this backend if it doesn't have a module
+            if not module:
+                log.debug(f"Could not load module for backend {module}")
+                continue
+
+            backend_data = {}
+            specs = module.Backend.get_static_parameters()
+            backend_data['pid'] = str(settings.get('pid'))
+            backend_data["first_run"] = False
+
+            for param_name, param_dic in specs.items():
+
+                try:
+                    # We need to convert the parameter to the right format.
+                    # We fetch the format from the static_parameters
+                    param_type = param_dic[GenericBackend.PARAM_TYPE]
+                    param_value = GenericBackend.cast_param_type_from_string(
+                        settings.get(param_name), param_type)
+
+                    backend_data[param_name] = param_value
+
+                except ValueError:
+                    # Parameter not found in config
+                    pass
+
+            backend_data['backend'] = module.Backend(backend_data)
+            backends.append(backend_data)
+
+        # If no backend available, we create a new using localfile. Dic
         # will be filled in by the backend
-        if len(backends_dic) == 0:
+        if not backends:
             dic = BackendFactory().get_new_backend_dict(
                 "backend_localfile")
-            dic["backend"].this_is_the_first_run(None)
-            backends_dic.append(dic)
-        return backends_dic
 
-    def _read_backend_configuration_file(self):
-        """
-        Reads the file describing the current backend configuration
-        (project.xml) and returns a list of dictionaries, each containing:
-         - the xml object defining the backend characteristics under
-              "xmlobject"
-         - the name of the backend under "module"
-        """
-        # Read configuration file, if it does not exist, create one
-        doc = xml.open_file(PROJECTS_XMLFILE, "config")
-        xmlproject = doc.xpath('//backend')
+            dic["first_run"] = True
+            backends.append(dic)
 
-        # collect configured backends
-        return [{'xmlobject': xp,
-                 'module': xp.attrib['module']}
-                for xp in xmlproject]
+        return backends

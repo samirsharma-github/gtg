@@ -11,6 +11,7 @@ gtg_plugins = [
   'untouched-tasks',
   'urgency-color',
   'hamster',
+  'dev_console',
 ]
 
 foreach plugin : gtg_plugins
@@ -21,7 +22,10 @@ foreach plugin : gtg_plugins
     install: true,
     install_dir: plugin_install_dir,
     type: 'desktop',
-    args: ['--keyword=name', '--keyword=short-description', '--keyword=description']
+    args: ['--keyword=name', '--keyword=short-description', '--keyword=description'],
+    build_by_default: true,
+    build_always_stale: true
+    # build always because otherwise new translations won't be applied
   )
   subdir(plugin.underscorify())
 endforeach
